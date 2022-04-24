@@ -1,6 +1,4 @@
-#![allow(dead_code)]
-
-use crate::lexer::Token;
+use crate::lexer::{Delim, Keyword, Token};
 
 /**
  * var: ID
@@ -13,19 +11,19 @@ use crate::lexer::Token;
  */
 
 #[derive(Debug, PartialEq, Eq)]
-struct Assign {
+pub struct Assign {
     var: String,
-    expr: Expr,
+    expr: Box<Expr>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Op {
+pub enum Op {
     Add,
     Mult,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Expr {
+pub enum Expr {
     Let {
         assignments: Vec<Assign>,
         expr: Box<Expr>,
@@ -39,7 +37,102 @@ enum Expr {
     Literal(i32),
 }
 
-type AST = Box<Expr>;
+pub type AST = Box<Expr>;
+
+pub struct Parser<'a, T: Iterator<Item = Token<'a>>> {
+    iter: T,
+    token: Option<Token<'a>>,
+}
+
+impl<'a, T: Iterator<Item = Token<'a>>> Parser<'a, T> {
+    pub fn new(mut iter: T) -> Self {
+        let token = iter.next();
+        Self { iter, token }
+    }
+
+    pub fn parse(&mut self) -> Box<Expr> {
+        self.expr()
+    }
+
+    fn peek(&self) -> &Token {
+        self.token
+            .as_ref()
+            .expect("peek() called with all tokens consumed")
+    }
+
+    fn take(&mut self) -> Token {
+        let token = self.token.take();
+        self.token = self.iter.next();
+        token.expect("take() called with no tokens left")
+    }
+
+    fn assignments(&mut self) -> Vec<Assign> {
+        let mut assignments = Vec::new();
+
+        while let Token::Ident(_) = self.peek() {
+            assignments.push(Assign {
+                var: self.var(),
+                expr: self.expr(),
+            })
+        }
+
+        assignments
+    }
+
+    fn comp_expr(&mut self) -> Box<Expr> {
+        assert_eq!(self.take(), Token::Delim(Delim::Open));
+
+        let node = if let Token::Keyword(keyword) = self.take() {
+            match keyword {
+                Keyword::Let => Expr::Let {
+                    assignments: self.assignments(),
+                    expr: self.expr(),
+                },
+                Keyword::Add => Expr::Math {
+                    op: Op::Add,
+                    left: self.expr(),
+                    right: self.expr(),
+                },
+                Keyword::Mult => Expr::Math {
+                    op: Op::Mult,
+                    left: self.expr(),
+                    right: self.expr(),
+                },
+            }
+        } else {
+            panic!("expr() expected a keyword token");
+        };
+
+        assert_eq!(self.take(), Token::Delim(Delim::Close));
+
+        Box::new(node)
+    }
+
+    fn var(&mut self) -> String {
+        if let Token::Ident(id) = self.take() {
+            id.to_owned()
+        } else {
+            panic!("var() expected an ident token")
+        }
+    }
+
+    fn literal(&mut self) -> i32 {
+        if let Token::Literal(n) = self.take() {
+            n
+        } else {
+            panic!("literal() expected a literal token")
+        }
+    }
+
+    fn expr(&mut self) -> Box<Expr> {
+        match self.peek() {
+            Token::Delim(Delim::Open) => self.comp_expr(),
+            Token::Ident(_) => Box::new(Expr::Var(self.var())),
+            Token::Literal(_) => Box::new(Expr::Literal(self.literal())),
+            _ => panic!("expr() expected an opening delim, an ident, or a literal"),
+        }
+    }
+}
 
 impl<'a> From<Vec<Token<'a>>> for AST {
     fn from(tokens: Vec<Token<'a>>) -> Self {
@@ -49,10 +142,7 @@ impl<'a> From<Vec<Token<'a>>> for AST {
 
 impl<'a> FromIterator<Token<'a>> for AST {
     fn from_iter<T: IntoIterator<Item = Token<'a>>>(iter: T) -> Self {
-        for token in iter {
-            println!("{token:?}")
-        }
-        Box::new(Expr::Literal(0))
+        Parser::new(iter.into_iter()).parse()
     }
 }
 
@@ -69,7 +159,7 @@ mod test {
             Box::new(Expr::Let {
                 assignments: vec![Assign {
                     var: "x".to_string(),
-                    expr: Expr::Literal(2)
+                    expr: Box::new(Expr::Literal(2))
                 }],
                 expr: Box::new(Expr::Math {
                     op: Op::Mult,
@@ -78,11 +168,11 @@ mod test {
                         assignments: vec![
                             Assign {
                                 var: "x".to_string(),
-                                expr: Expr::Literal(3)
+                                expr: Box::new(Expr::Literal(3))
                             },
                             Assign {
                                 var: "y".to_string(),
-                                expr: Expr::Literal(4)
+                                expr: Box::new(Expr::Literal(4))
                             }
                         ],
                         expr: Box::new(Expr::Math {

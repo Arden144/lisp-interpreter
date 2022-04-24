@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::{iter::Enumerate, str::Chars};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -123,7 +121,7 @@ mod test {
     #[test]
     #[should_panic(expected = "can't parse '!'")]
     fn invalid_language() {
-        Lexer::from("(add ! 2)").collect::<Vec<Token>>();
+        Lexer::from("(add ! 2)").for_each(drop);
     }
 
     #[test]
