@@ -3,17 +3,18 @@
 use crate::lexer::Token;
 
 /**
- * ident: [a-zA-z]+
- * bind: ident expr
- * op: add | mult
- * letexpr: (let bind+ expr)
- * mathexpr: (op expr expr)
- * expr: letexpr | mathexpr | ident | literal
+ * var: ID
+ * letexpr: (LET (var expr)+ expr)
+ * mathexpr: ((ADD | MULT) expr expr)
+ * expr: letexpr
+ *     | mathexpr
+ *     | var
+ *     | literal
  */
 
 #[derive(Debug, PartialEq, Eq)]
-struct Binding {
-    ident: String,
+struct Assign {
+    var: String,
     expr: Expr,
 }
 
@@ -26,55 +27,68 @@ enum Op {
 #[derive(Debug, PartialEq, Eq)]
 enum Expr {
     Let {
-        bindings: Vec<Binding>,
+        assignments: Vec<Assign>,
         expr: Box<Expr>,
     },
     Math {
-        operator: Op,
-        operand1: Box<Expr>,
-        operand2: Box<Expr>,
+        op: Op,
+        left: Box<Expr>,
+        right: Box<Expr>,
     },
-    Ident(String),
+    Var(String),
     Literal(i32),
 }
 
-fn parse<'a>(tokens: impl Iterator<Item = Token<'a>>) -> Box<Expr> {
-    unimplemented!()
+type AST = Box<Expr>;
+
+impl<'a> From<Vec<Token<'a>>> for AST {
+    fn from(tokens: Vec<Token<'a>>) -> Self {
+        Self::from_iter(tokens)
+    }
+}
+
+impl<'a> FromIterator<Token<'a>> for AST {
+    fn from_iter<T: IntoIterator<Item = Token<'a>>>(iter: T) -> Self {
+        for token in iter {
+            println!("{token:?}")
+        }
+        Box::new(Expr::Literal(0))
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::lexer::eval;
+    use crate::lexer::Lexer;
 
-    use super::{parse, Binding, Expr, Op};
+    use super::{Assign, Expr, Op, AST};
 
     #[test]
     fn example3() {
         assert_eq!(
-            parse(eval("(let x 2 (mult x (let x 3 y 4 (add x y))))")),
+            Lexer::from("(let x 2 (mult x (let x 3 y 4 (add x y))))").collect::<AST>(),
             Box::new(Expr::Let {
-                bindings: vec![Binding {
-                    ident: "x".to_string(),
+                assignments: vec![Assign {
+                    var: "x".to_string(),
                     expr: Expr::Literal(2)
                 }],
                 expr: Box::new(Expr::Math {
-                    operator: Op::Mult,
-                    operand1: Box::new(Expr::Ident("x".to_string())),
-                    operand2: Box::new(Expr::Let {
-                        bindings: vec![
-                            Binding {
-                                ident: "x".to_string(),
+                    op: Op::Mult,
+                    left: Box::new(Expr::Var("x".to_string())),
+                    right: Box::new(Expr::Let {
+                        assignments: vec![
+                            Assign {
+                                var: "x".to_string(),
                                 expr: Expr::Literal(3)
                             },
-                            Binding {
-                                ident: "y".to_string(),
+                            Assign {
+                                var: "y".to_string(),
                                 expr: Expr::Literal(4)
                             }
                         ],
                         expr: Box::new(Expr::Math {
-                            operator: Op::Add,
-                            operand1: Box::new(Expr::Ident("x".to_string())),
-                            operand2: Box::new(Expr::Ident("y".to_string()))
+                            op: Op::Add,
+                            left: Box::new(Expr::Var("x".to_string())),
+                            right: Box::new(Expr::Var("y".to_string()))
                         })
                     })
                 })

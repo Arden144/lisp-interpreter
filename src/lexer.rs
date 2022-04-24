@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::{iter::Enumerate, str::Chars};
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Delim {
     Open,
@@ -21,66 +23,113 @@ pub enum Token<'a> {
     Literal(i32),
 }
 
-impl<'a> From<&'a str> for Token<'a> {
-    fn from(s: &'a str) -> Self {
-        use self::Keyword::*;
-        use Token::*;
-        match s {
+pub struct Lexer<'a> {
+    expr: &'a str,
+    chars: Enumerate<Chars<'a>>,
+    ch: Option<(usize, char)>,
+}
+
+use self::Delim::*;
+use self::Keyword::*;
+use Token::*;
+
+impl<'a> Lexer<'a> {
+    fn skip_whitespace(&mut self) {
+        while let Some((_, ch)) = self.ch {
+            if !ch.is_whitespace() {
+                break;
+            }
+            self.ch = self.chars.next();
+        }
+    }
+
+    fn next_delimiter(&mut self) -> Option<Token<'a>> {
+        let (_, ch) = self.ch?;
+        self.ch = self.chars.next();
+        Some(match ch {
+            '(' => Delim(Open),
+            ')' => Delim(Close),
+            _ => panic!("next_delimiter() called on non-delimiter"),
+        })
+    }
+
+    fn next_literal(&mut self) -> Option<Token<'a>> {
+        let (start, _) = self.ch?;
+        let mut end = start;
+        while let Some((i, ch)) = self.ch {
+            if !ch.is_numeric() {
+                end = i;
+                break;
+            }
+            self.ch = self.chars.next();
+        }
+        assert!(end > start, "next_literal() called on non-literal");
+        let token = &self.expr[start..end];
+        token.parse().ok().map(|n| Literal(n))
+    }
+
+    fn next_identifier(&mut self) -> Option<Token<'a>> {
+        let (start, _) = self.ch.unwrap();
+        let mut end = start;
+        while let Some((i, ch)) = self.ch {
+            if !ch.is_alphanumeric() {
+                end = i;
+                break;
+            }
+            self.ch = self.chars.next();
+        }
+        assert!(end > start, "next_identifier() called on non-literal");
+        let token = &self.expr[start..end];
+        Some(match token {
             "let" => Keyword(Let),
             "add" => Keyword(Add),
             "mult" => Keyword(Mult),
-            s => match s.parse::<i32>() {
-                Ok(n) => Literal(n),
-                Err(_) => Ident(s),
-            },
-        }
+            id => Ident(id),
+        })
     }
 }
 
-pub fn eval(expr: &str) -> impl Iterator<Item = Token> {
-    use self::Delim::*;
-    use Token::*;
+impl<'a> From<&'a str> for Lexer<'a> {
+    fn from(expr: &'a str) -> Self {
+        let mut chars = expr.chars().enumerate();
+        let ch = chars.next();
+        Self { expr, chars, ch }
+    }
+}
 
-    let mut start = 0;
-    let mut end = 0;
+impl<'a> Iterator for Lexer<'a> {
+    type Item = Token<'a>;
 
-    let tokenize = move |ch| {
-        let s = &expr[start..end];
-        start += 1;
-        end += 1;
-
-        let mut commit = |token| {
-            [
-                (!s.is_empty()).then(|| {
-                    start = end;
-                    Token::from(s)
-                }),
-                token,
-            ]
-        };
-
-        match ch {
-            '(' => commit(Some(Delim(Open))),
-            ')' => commit(Some(Delim(Close))),
-            ' ' => commit(None),
-            _ => {
-                start -= 1;
-                [None, None]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.ch.and_then(|(_, ch)| {
+            if ch.is_whitespace() {
+                self.skip_whitespace();
+                return self.next();
             }
-        }
-    };
-
-    expr.chars().flat_map(tokenize).filter_map(|t| t)
+            match ch {
+                '(' | ')' => self.next_delimiter(),
+                ch if ch.is_numeric() => self.next_literal(),
+                ch if ch.is_alphabetic() => self.next_identifier(),
+                ch => panic!("can't parse '{ch}'"),
+            }
+        })
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use super::{eval, Delim::*, Keyword::*, Token, Token::*};
+    use super::{Delim::*, Keyword::*, Lexer, Token, Token::*};
+
+    #[test]
+    #[should_panic(expected = "can't parse '!'")]
+    fn invalid_language() {
+        Lexer::from("(add ! 2)").collect::<Vec<Token>>();
+    }
 
     #[test]
     fn example3() {
         assert_eq!(
-            eval("(let x 2 (mult x (let x 3 y 4 (add x y))))").collect::<Vec<Token>>(),
+            Lexer::from("(let x 2 (mult x (let x 3 y 4 (add x y))))").collect::<Vec<Token>>(),
             vec![
                 Delim(Open),
                 Keyword(Let),
