@@ -69,7 +69,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn next_identifier(&mut self) -> Option<Token<'a>> {
-        let (start, _) = self.ch.unwrap();
+        let (start, _) = self.ch?;
         let mut end = start;
         while let Some((i, ch)) = self.ch {
             if !ch.is_alphanumeric() {
