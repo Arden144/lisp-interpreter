@@ -12,8 +12,8 @@ use crate::lexer::{Delim, Keyword, Token};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Assign {
-    var: String,
-    expr: Box<Expr>,
+    pub var: String,
+    pub expr: Box<Expr>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,22 +61,35 @@ impl<'a, T: Iterator<Item = Token<'a>>> Parser<'a, T> {
     }
 
     fn take(&mut self) -> Token {
-        let token = self.token.take();
+        let token = self
+            .token
+            .take()
+            .expect("take() called with no tokens left");
         self.token = self.iter.next();
-        token.expect("take() called with no tokens left")
+        token
     }
 
-    fn assignments(&mut self) -> Vec<Assign> {
+    fn letexpr(&mut self) -> Expr {
         let mut assignments = Vec::new();
 
         while let Token::Ident(_) = self.peek() {
+            let var = self.var();
+            if let Token::Delim(Delim::Close) = self.peek() {
+                return Expr::Let {
+                    assignments,
+                    expr: Box::new(Expr::Var(var)),
+                };
+            }
             assignments.push(Assign {
-                var: self.var(),
+                var,
                 expr: self.expr(),
             })
         }
 
-        assignments
+        Expr::Let {
+            assignments,
+            expr: self.expr(),
+        }
     }
 
     fn comp_expr(&mut self) -> Box<Expr> {
@@ -84,10 +97,7 @@ impl<'a, T: Iterator<Item = Token<'a>>> Parser<'a, T> {
 
         let node = if let Token::Keyword(keyword) = self.take() {
             match keyword {
-                Keyword::Let => Expr::Let {
-                    assignments: self.assignments(),
-                    expr: self.expr(),
-                },
+                Keyword::Let => self.letexpr(),
                 Keyword::Add => Expr::Math {
                     op: Op::Add,
                     left: self.expr(),
@@ -129,7 +139,10 @@ impl<'a, T: Iterator<Item = Token<'a>>> Parser<'a, T> {
             Token::Delim(Delim::Open) => self.comp_expr(),
             Token::Ident(_) => Box::new(Expr::Var(self.var())),
             Token::Literal(_) => Box::new(Expr::Literal(self.literal())),
-            _ => panic!("expr() expected an opening delim, an ident, or a literal"),
+            _ => panic!(
+                "expr() expected an opening delim, an ident, or a literal (reading {:?})",
+                self.peek()
+            ),
         }
     }
 }
@@ -153,7 +166,7 @@ mod test {
     use super::{Assign, Expr, Op, AST};
 
     #[test]
-    fn example3() {
+    fn example1() {
         assert_eq!(
             Lexer::from("(let x 2 (mult x (let x 3 y 4 (add x y))))").collect::<AST>(),
             Box::new(Expr::Let {
